@@ -7,7 +7,7 @@ from app.tts import TextToSpeech
 
 def build_app():
     stt = SpeechToText()
-    tts = TextToSpeech(model_path="models/en_US-lessac-medium.onnx")
+    tts = TextToSpeech(model_path="models/en_GB-southern_english_female-low.onnx")
     return create_app(stt, tts)
 
 

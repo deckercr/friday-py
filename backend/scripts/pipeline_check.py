@@ -25,7 +25,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--voice-model", default="models/en_US-lessac-medium.onnx")
+    parser.add_argument("--voice-model", default="models/en_GB-southern_english_female-low.onnx")
     args = parser.parse_args()
 
     stt = SpeechToText()
