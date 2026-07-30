@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from ws_client import FridayClient
 
 
@@ -11,7 +13,7 @@ class FakeConnection:
     def send(self, data):
         self.sent.append(data)
 
-    def recv(self):
+    def recv(self, timeout=None):
         return self._responses.pop(0)
 
 
@@ -50,3 +52,22 @@ def test_send_utterance_returns_error_message():
 
     assert result.error == "boom"
     assert result.audio_chunks == []
+
+
+class TimingOutConnection:
+    def __init__(self):
+        self.sent = []
+
+    def send(self, data):
+        self.sent.append(data)
+
+    def recv(self, timeout=None):
+        raise TimeoutError("timed out waiting for message")
+
+
+def test_send_utterance_propagates_recv_timeout():
+    connection = TimingOutConnection()
+    client = FridayClient(connection)
+
+    with pytest.raises(TimeoutError):
+        client.send_utterance(b"\x00\x00")

@@ -45,12 +45,48 @@ class FailingClient:
         raise OSError("connection refused")
 
 
+class MalformedProtocolClient:
+    def send_utterance(self, audio_bytes):
+        raise ValueError("Expecting value: line 1 column 1 (char 0)")
+
+
+class MissingKeyProtocolClient:
+    def send_utterance(self, audio_bytes):
+        raise KeyError("type")
+
+
 def test_handle_utterance_recovers_from_connection_error(monkeypatch):
     played = []
     monkeypatch.setattr("app.play", lambda chunk: played.append(chunk))
 
     tray_app = FridayTrayApp(server_url="ws://test")
     tray_app._client = FailingClient()
+
+    tray_app._handle_utterance(b"\x00\x00")
+
+    assert played == []
+    assert tray_app._client is None
+
+
+def test_handle_utterance_recovers_from_malformed_protocol_response(monkeypatch):
+    played = []
+    monkeypatch.setattr("app.play", lambda chunk: played.append(chunk))
+
+    tray_app = FridayTrayApp(server_url="ws://test")
+    tray_app._client = MalformedProtocolClient()
+
+    tray_app._handle_utterance(b"\x00\x00")
+
+    assert played == []
+    assert tray_app._client is None
+
+
+def test_handle_utterance_recovers_from_missing_protocol_key(monkeypatch):
+    played = []
+    monkeypatch.setattr("app.play", lambda chunk: played.append(chunk))
+
+    tray_app = FridayTrayApp(server_url="ws://test")
+    tray_app._client = MissingKeyProtocolClient()
 
     tray_app._handle_utterance(b"\x00\x00")
 

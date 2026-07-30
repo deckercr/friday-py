@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from websockets.sync.client import connect
 
 SERVER_URL = "ws://localhost:8000/ws/session"
+RECV_TIMEOUT_SECONDS = 30
 
 
 @dataclass
@@ -27,7 +28,7 @@ class FridayClient:
         audio_chunks = []
 
         while True:
-            message = self._connection.recv()
+            message = self._connection.recv(timeout=RECV_TIMEOUT_SECONDS)
             if isinstance(message, bytes):
                 audio_chunks.append(message)
                 continue

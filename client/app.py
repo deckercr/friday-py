@@ -42,7 +42,7 @@ class FridayTrayApp:
             if self._client is None:
                 self._client = connect_to_server(self._server_url)
             result = self._client.send_utterance(audio_bytes)
-        except (OSError, WebSocketException) as exc:
+        except (OSError, WebSocketException, ValueError, KeyError) as exc:
             print(f"Disconnected ({exc}); will reconnect on next talk")
             self._client = None
             return
