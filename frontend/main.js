@@ -12,6 +12,7 @@ let scriptNode = null;
 let micStream = null;
 let recordedSamples = [];
 let playbackContext = null;
+let nextPlaybackTime = 0;
 
 function floatTo16BitPCM(float32Array) {
   const output = new Int16Array(float32Array.length);
@@ -57,6 +58,7 @@ function handleServerMessage(message) {
 function playAudioChunk(arrayBuffer) {
   if (playbackContext === null) {
     playbackContext = new AudioContext({ sampleRate: SAMPLE_RATE });
+    nextPlaybackTime = playbackContext.currentTime;
   }
   const int16 = new Int16Array(arrayBuffer);
   const float32 = new Float32Array(int16.length);
@@ -68,12 +70,19 @@ function playAudioChunk(arrayBuffer) {
   const source = playbackContext.createBufferSource();
   source.buffer = buffer;
   source.connect(playbackContext.destination);
-  source.start();
+  const startAt = Math.max(nextPlaybackTime, playbackContext.currentTime);
+  source.start(startAt);
+  nextPlaybackTime = startAt + buffer.duration;
 }
 
 async function startRecording() {
   recordedSamples = [];
-  micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    statusEl.textContent = `mic error: ${err.message}`;
+    return;
+  }
   // Requesting a 16kHz context directly avoids hand-rolled resampling;
   // modern Chromium/Firefox honor this, but it is not guaranteed everywhere.
   audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
@@ -88,9 +97,11 @@ async function startRecording() {
 }
 
 function stopRecording() {
+  if (!audioContext) return;
   scriptNode.disconnect();
   audioContext.close();
   micStream.getTracks().forEach((track) => track.stop());
+  audioContext = null;
 
   const totalLength = recordedSamples.reduce((sum, chunk) => sum + chunk.length, 0);
   const merged = new Int16Array(totalLength);
@@ -100,11 +111,29 @@ function stopRecording() {
     offset += chunk.length;
   }
 
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    statusEl.textContent = "not connected; utterance dropped";
+    return;
+  }
   socket.send(merged.buffer);
   socket.send(JSON.stringify({ type: "end_utterance" }));
 }
 
 talkButton.addEventListener("mousedown", startRecording);
-talkButton.addEventListener("mouseup", stopRecording);
+window.addEventListener("mouseup", stopRecording);
+talkButton.addEventListener("touchstart", (e) => {
+  e.preventDefault();
+  startRecording();
+});
+talkButton.addEventListener("touchend", (e) => {
+  e.preventDefault();
+  stopRecording();
+});
+talkButton.addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && !e.repeat) startRecording();
+});
+talkButton.addEventListener("keyup", (e) => {
+  if (e.key === "Enter" || e.key === " ") stopRecording();
+});
 
 connect();
