@@ -13,6 +13,7 @@ let micStream = null;
 let recordedSamples = [];
 let playbackContext = null;
 let nextPlaybackTime = 0;
+let recordingToken = 0;
 
 function floatTo16BitPCM(float32Array) {
   const output = new Int16Array(float32Array.length);
@@ -77,12 +78,21 @@ function playAudioChunk(arrayBuffer) {
 
 async function startRecording() {
   recordedSamples = [];
+  const token = ++recordingToken;
+  let stream;
   try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (err) {
     statusEl.textContent = `mic error: ${err.message}`;
     return;
   }
+  if (token !== recordingToken) {
+    // The button was released (or another recording started) while we were
+    // waiting for mic permission — discard this stream instead of starting.
+    stream.getTracks().forEach((track) => track.stop());
+    return;
+  }
+  micStream = stream;
   // Requesting a 16kHz context directly avoids hand-rolled resampling;
   // modern Chromium/Firefox honor this, but it is not guaranteed everywhere.
   audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
@@ -97,6 +107,7 @@ async function startRecording() {
 }
 
 function stopRecording() {
+  recordingToken++;
   if (!audioContext) return;
   scriptNode.disconnect();
   audioContext.close();
@@ -126,6 +137,10 @@ talkButton.addEventListener("touchstart", (e) => {
   startRecording();
 });
 talkButton.addEventListener("touchend", (e) => {
+  e.preventDefault();
+  stopRecording();
+});
+talkButton.addEventListener("touchcancel", (e) => {
   e.preventDefault();
   stopRecording();
 });
