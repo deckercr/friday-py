@@ -1,3 +1,5 @@
+import asyncio
+
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
@@ -10,6 +12,8 @@ from app.protocol import (
     decode,
     encode,
 )
+
+MAX_UTTERANCE_BYTES = 16_000 * 1 * 2 * 30  # 30 seconds of PCM16 mono
 
 
 def pcm16_bytes_to_float32(raw: bytes) -> np.ndarray:
@@ -30,7 +34,11 @@ def create_app(stt, tts) -> FastAPI:
                 if message.get("type") == "websocket.disconnect":
                     break
                 if message.get("bytes") is not None:
-                    buffer.extend(message["bytes"])
+                    chunk = message["bytes"]
+                    if len(buffer) + len(chunk) > MAX_UTTERANCE_BYTES:
+                        await websocket.close(code=1009, reason="utterance too large")
+                        return
+                    buffer.extend(chunk)
                     continue
                 if message.get("text") is not None:
                     parsed = decode(message["text"])
@@ -46,13 +54,14 @@ def create_app(stt, tts) -> FastAPI:
 async def _handle_utterance(websocket: WebSocket, raw_audio: bytes, stt, tts) -> None:
     try:
         audio = pcm16_bytes_to_float32(raw_audio)
-        transcript = stt.transcribe(audio)
+        transcript = await asyncio.to_thread(stt.transcribe, audio)
         await websocket.send_text(encode(TranscriptMessage(text=transcript)))
 
         response_text = generate_response(transcript)
         await websocket.send_text(encode(ResponseTextMessage(text=response_text)))
 
-        for chunk in tts.synthesize_chunks(response_text):
+        chunks = await asyncio.to_thread(tts.synthesize_chunks, response_text)
+        for chunk in chunks:
             await websocket.send_bytes(chunk)
 
         await websocket.send_text(encode(ResponseCompleteMessage()))

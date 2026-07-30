@@ -1,8 +1,9 @@
 import json
 
+from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 
-from app.server import create_app
+from app.server import MAX_UTTERANCE_BYTES, create_app
 
 
 class FakeStt:
@@ -54,3 +55,20 @@ def test_tts_failure_sends_error_message():
 
         error_msg = json.loads(ws.receive_text())
         assert error_msg == {"type": "error", "message": "synth failed"}
+
+
+def test_oversized_utterance_closes_connection():
+    app = create_app(FakeStt(), FakeTts())
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws/session") as ws:
+        ws.send_bytes(b"\x00" * (MAX_UTTERANCE_BYTES + 1))
+
+        try:
+            ws.receive_bytes()
+            raised = False
+        except WebSocketDisconnect as exc:
+            raised = True
+            assert exc.code == 1009
+
+        assert raised

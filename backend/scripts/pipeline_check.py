@@ -17,6 +17,8 @@ def load_wav_as_float32(path: str) -> np.ndarray:
     with wave.open(path, "rb") as wav_file:
         assert wav_file.getframerate() == 16000, "expected 16kHz input WAV"
         assert wav_file.getnchannels() == 1, "expected mono input WAV"
+        if wav_file.getsampwidth() != 2:
+            raise ValueError("expected 16-bit PCM input WAV")
         raw = wav_file.readframes(wav_file.getnframes())
     return pcm16_bytes_to_float32(raw)
 
