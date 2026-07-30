@@ -1,0 +1,20 @@
+[project]
+name = "friday-client"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pystray>=0.19",
+    "pillow>=10.0",
+    "pynput>=1.7",
+    "sounddevice>=0.4",
+    "numpy>=1.26",
+    "websockets>=13.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
