@@ -22,14 +22,17 @@ class FridayTrayApp:
         self._recorder = AudioRecorder()
         self._client = None
         self._icon = pystray.Icon("friday", icon=_create_icon_image("gray"))
+        self._recording = False
 
     def _on_press(self, key) -> None:
-        if key == HOTKEY:
+        if key == HOTKEY and not self._recording:
+            self._recording = True
             self._icon.icon = _create_icon_image("red")
             self._recorder.start()
 
     def _on_release(self, key) -> None:
-        if key == HOTKEY:
+        if key == HOTKEY and self._recording:
+            self._recording = False
             audio_bytes = self._recorder.stop()
             self._icon.icon = _create_icon_image("gray")
             self._handle_utterance(audio_bytes)
