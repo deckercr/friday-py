@@ -110,6 +110,13 @@ uv sync
 uv run python app.py
 ```
 
+By default the native client connects to `ws://localhost:8000/ws/session`. To
+point it at a remote backend (e.g. a GPU host on the LAN), set
+`FRIDAY_SERVER_URL` before starting it, e.g.
+`FRIDAY_SERVER_URL=ws://mindforge:8000/ws/session`. The browser client needs
+no such setting — it derives the WebSocket URL from whatever address loaded
+the page, since the backend serves that page itself.
+
 For the browser client, once the backend is running, open
 `http://localhost:8000/` (or the backend host's address) in a browser.
 

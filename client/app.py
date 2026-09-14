@@ -1,10 +1,12 @@
+import os
+
 import pystray
 from PIL import Image, ImageDraw
 from pynput import keyboard
 from websockets.exceptions import WebSocketException
 
 from audio import AudioRecorder, play
-from ws_client import connect_to_server
+from ws_client import SERVER_URL, connect_to_server
 
 HOTKEY = keyboard.Key.f9
 
@@ -62,4 +64,6 @@ class FridayTrayApp:
 
 
 if __name__ == "__main__":
-    FridayTrayApp(server_url="ws://localhost:8000/ws/session").run()
+    # Point at a remote backend (e.g. the GPU host) with FRIDAY_SERVER_URL,
+    # mirroring the backend's own FRIDAY_HOST convention.
+    FridayTrayApp(server_url=os.environ.get("FRIDAY_SERVER_URL", SERVER_URL)).run()

@@ -1,4 +1,8 @@
-const SERVER_URL = "ws://localhost:8000/ws/session";
+// Derived from the page's own origin rather than hardcoded, since this page
+// is served directly by the backend it talks to — whatever host/protocol
+// loaded the page is the right one to connect the WebSocket to.
+const WS_PROTOCOL = window.location.protocol === "https:" ? "wss:" : "ws:";
+const SERVER_URL = `${WS_PROTOCOL}//${window.location.host}/ws/session`;
 const SAMPLE_RATE = 16000;
 
 const statusEl = document.getElementById("status");
