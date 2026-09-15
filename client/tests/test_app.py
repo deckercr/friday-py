@@ -128,6 +128,43 @@ def test_send_and_report_recovers_from_missing_protocol_key(monkeypatch):
     assert app._client is None
 
 
+def test_listen_forever_retries_with_backoff_when_capture_fails(monkeypatch):
+    app = FridayApp(server_url="ws://test", wake_models=[])
+    monkeypatch.setattr(app._listener, "process_chunk", lambda chunk: None)
+
+    call_count = 0
+
+    def _failing_listen_chunks(chunk_samples, sample_rate):
+        nonlocal call_count
+        call_count += 1
+        raise OSError("no such device")
+        yield  # pragma: no cover - unreachable; makes this a generator function
+
+    monkeypatch.setattr("app.listen_chunks", _failing_listen_chunks)
+
+    class _StopTest(Exception):
+        pass
+
+    sleeps = []
+
+    def _fake_sleep(seconds):
+        sleeps.append(seconds)
+        if len(sleeps) >= 3:
+            raise _StopTest()
+
+    monkeypatch.setattr("app.time.sleep", _fake_sleep)
+
+    try:
+        app._listen_forever()
+    except _StopTest:
+        pass
+
+    # Every attempt fails before yielding a single chunk (e.g. no device at
+    # all), so backoff keeps doubling rather than resetting.
+    assert sleeps == [1.0, 2.0, 4.0]
+    assert call_count == 3
+
+
 def test_on_utterance_ready_dispatches_to_background_thread(monkeypatch):
     app = FridayApp(server_url="ws://test", wake_models=[])
     calls = []

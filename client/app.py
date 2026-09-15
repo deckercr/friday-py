@@ -1,5 +1,6 @@
 import os
 import threading
+import time
 
 import pystray
 from PIL import Image, ImageDraw
@@ -68,11 +69,29 @@ class FridayApp:
             self._listener.mark_sending_finished()
 
     def _listen_forever(self) -> None:
-        for chunk in listen_chunks(chunk_samples=CHUNK_SAMPLES, sample_rate=SAMPLE_RATE):
+        backoff_seconds = 1.0
+        while True:
+            got_any_chunk = False
             try:
-                self._listener.process_chunk(chunk)
-            except Exception as exc:  # noqa: BLE001 - keep the mic thread alive at all costs
-                print(f"Warning: error processing audio chunk ({exc}); still listening")
+                for chunk in listen_chunks(chunk_samples=CHUNK_SAMPLES, sample_rate=SAMPLE_RATE):
+                    got_any_chunk = True
+                    try:
+                        self._listener.process_chunk(chunk)
+                    except Exception as exc:  # noqa: BLE001 - keep the mic thread alive at all costs
+                        print(f"Warning: error processing audio chunk ({exc}); still listening")
+            except Exception as exc:
+                # listen_chunks itself failed (e.g. device disconnected,
+                # stream creation error) - the mic thread would otherwise
+                # die silently here, leaving the app permanently deaf while
+                # the tray icon still shows "listening". Retry with bounded
+                # backoff instead; reset the backoff once the stream had
+                # been delivering chunks (a real, if transient, failure)
+                # rather than failing immediately (e.g. no device at all).
+                if got_any_chunk:
+                    backoff_seconds = 1.0
+                print(f"Warning: audio capture failed ({exc}); retrying in {backoff_seconds:.0f}s")
+                time.sleep(backoff_seconds)
+                backoff_seconds = min(backoff_seconds * 2, 30.0)
 
     def run(self) -> None:
         threading.Thread(target=self._listen_forever, daemon=True).start()
