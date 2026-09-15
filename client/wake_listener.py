@@ -121,7 +121,15 @@ class WakeWordListener:
             self._set_state(LISTENING)
             return
         self._set_state(SENDING)
-        self._on_utterance_ready(audio_bytes)
+        try:
+            self._on_utterance_ready(audio_bytes)
+        except Exception:
+            # The listener already entered SENDING above (before the mic
+            # thread could know whether this callback would succeed) - if
+            # it raises, restore LISTENING here rather than staying stuck
+            # discarding every subsequent chunk.
+            self.mark_sending_finished()
+            raise
 
     def _reset_wake_models(self) -> None:
         for model in self._wake_models:

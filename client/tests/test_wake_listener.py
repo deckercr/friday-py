@@ -240,3 +240,28 @@ def test_on_state_change_fires_for_each_transition():
     listener.mark_sending_finished()   # sending -> listening
 
     assert seen == ["recording", "sending", "listening"]
+
+
+def test_state_restored_to_listening_when_utterance_dispatch_raises():
+    chunk_seconds = CHUNK_SAMPLES / SAMPLE_RATE
+    model = FakeWakeModel(trigger_on_call=1)
+
+    def _raising_callback(audio_bytes):
+        raise RuntimeError("boom")
+
+    listener = WakeWordListener(
+        wake_models=[model],
+        on_utterance_ready=_raising_callback,
+        max_utterance_seconds=chunk_seconds,
+        min_utterance_seconds=0.0,
+    )
+
+    try:
+        listener.process_chunk(_chunk(0))  # trigger -> recording -> sending -> callback raises
+        raised = False
+    except RuntimeError:
+        raised = True
+
+    assert raised
+    assert listener.state == "listening"
+    assert model.reset_calls == 1
