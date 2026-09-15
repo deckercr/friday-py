@@ -217,8 +217,8 @@ def test_bare_wake_word_with_no_follow_up_speech_is_dropped_at_realistic_default
     listener.process_chunk(_chunk(5000))  # loud trigger chunk ("Friday" itself)
     assert listener.state == "recording"
 
-    # Enough consecutive silent chunks to reach the default 1.0s hangover.
-    for _ in range(13):
+    # Enough consecutive silent chunks to reach the default 1.5s hangover.
+    for _ in range(19):
         listener.process_chunk(_chunk(0))
 
     assert listener.state == "listening"

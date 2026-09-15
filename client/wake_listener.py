@@ -21,7 +21,7 @@ CHUNK_SAMPLES = 1280  # ~80ms at 16kHz - openWakeWord's expected chunk size
 
 WAKE_THRESHOLD = 0.5
 SILENCE_RMS_THRESHOLD = 300
-SILENCE_HANGOVER_SECONDS = 1.0
+SILENCE_HANGOVER_SECONDS = 1.5  # was 1.0 - real-world testing found the mic cutting off natural speech, especially the brief pause right after the wake word before the rest of the phrase
 MAX_UTTERANCE_SECONDS = 20.0
 MIN_UTTERANCE_SECONDS = 0.5
 PRE_ROLL_SECONDS = 0.5
