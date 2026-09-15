@@ -9,6 +9,8 @@ dependencies = [
     "sounddevice>=0.4",
     "numpy>=1.26",
     "websockets>=13.0",
+    "openwakeword>=0.6",
+    "onnxruntime>=1.15",
 ]
 
 [dependency-groups]
