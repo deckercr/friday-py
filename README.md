@@ -63,17 +63,18 @@ one session's transcription doesn't stall others. Buffered audio is capped
 per utterance to bound memory use.
 
 **Native client** (`client/`) — a system-tray application for desktop use.
-Hold a hotkey to record, release to send; the response prints to the
-terminal and plays through the system's audio output. Handles dropped
-connections and slow/unresponsive servers without hanging the input
-listener.
+Listens continuously for a wake word ("Hey Friday" or "Friday") — no key to
+hold — then records until it detects silence and sends the utterance; the
+response prints to the terminal and plays through the system's audio
+output. Handles dropped connections and slow/unresponsive servers without
+hanging the input listener.
 
 **Browser client** (`frontend/`) — a framework-free web page served
 directly by the backend. Supports mouse, touch, and keyboard (Space or
 Enter) for push-to-talk, with sequential audio playback scheduling so
 streamed response audio doesn't overlap or garble.
 
-Every component has its own test suite (33 automated tests across backend
+Every component has its own test suite (43 automated tests across backend
 and client) plus manual verification checkpoints for the parts that need
 real audio hardware and a live model to confirm — automated tests mock the
 model layer, so end-to-end audio correctness is checked by hand at each
@@ -83,7 +84,7 @@ integration point.
 
 ```
 backend/    FastAPI server, speech-to-text, text-to-speech, WebSocket session handling
-client/     Native system-tray push-to-talk client
+client/     Native system-tray wake-word listening client
 frontend/   Browser-based push-to-talk client
 ```
 
@@ -110,12 +111,18 @@ uv sync
 uv run python app.py
 ```
 
-By default the native client connects to `ws://localhost:8000/ws/session`. To
-point it at a remote backend (e.g. a GPU host on the LAN), set
-`FRIDAY_SERVER_URL` before starting it, e.g.
-`FRIDAY_SERVER_URL=ws://mindforge:8000/ws/session`. The browser client needs
-no such setting — it derives the WebSocket URL from whatever address loaded
-the page, since the backend serves that page itself.
+By default the native client connects to `ws://localhost:8000/ws/session`
+and listens continuously for the wake word ("Hey Friday" or "Friday") — no
+key to hold. To point it at a remote backend (e.g. a GPU host on the LAN),
+set `FRIDAY_SERVER_URL` before starting it, e.g.
+`FRIDAY_SERVER_URL=ws://mindforge:8000/ws/session`. It expects trained
+wake-word models at `client/models/hey_friday.onnx` and
+`client/models/friday.onnx` — each is an ONNX external-data model, so its
+matching `client/models/hey_friday.onnx.data` / `friday.onnx.data` file
+must sit alongside it in the same directory; the `.onnx` file alone won't
+load. The browser client needs no such setting — it
+derives the WebSocket URL from whatever address loaded the page, since the
+backend serves that page itself.
 
 For the browser client, once the backend is running, open
 `http://localhost:8000/` (or the backend host's address) in a browser.

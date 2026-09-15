@@ -1,7 +1,9 @@
-from unittest.mock import Mock, MagicMock
-from pynput import keyboard
+import threading
+from unittest.mock import MagicMock
 
-from app import FridayTrayApp, HOTKEY
+import numpy as np
+
+from app import FridayApp, _create_icon_image, _ICON_COLORS
 from ws_client import UtteranceResult
 
 
@@ -13,31 +15,6 @@ class FakeClient:
     def send_utterance(self, audio_bytes):
         self.sent_audio = audio_bytes
         return self._result
-
-
-def test_handle_utterance_plays_audio_chunks(monkeypatch):
-    played = []
-    monkeypatch.setattr("app.play", lambda chunk: played.append(chunk))
-
-    tray_app = FridayTrayApp(server_url="ws://test")
-    tray_app._client = FakeClient(UtteranceResult("hi", "You said: hi", [b"\x01", b"\x02"]))
-
-    tray_app._handle_utterance(b"\x00\x00")
-
-    assert played == [b"\x01", b"\x02"]
-    assert tray_app._client.sent_audio == b"\x00\x00"
-
-
-def test_handle_utterance_does_not_play_audio_on_error(monkeypatch):
-    played = []
-    monkeypatch.setattr("app.play", lambda chunk: played.append(chunk))
-
-    tray_app = FridayTrayApp(server_url="ws://test")
-    tray_app._client = FakeClient(UtteranceResult("hi", "", [], error="boom"))
-
-    tray_app._handle_utterance(b"\x00\x00")
-
-    assert played == []
 
 
 class FailingClient:
@@ -55,92 +32,154 @@ class MissingKeyProtocolClient:
         raise KeyError("type")
 
 
-def test_handle_utterance_recovers_from_connection_error(monkeypatch):
+def test_on_state_change_updates_icon_color():
+    app = FridayApp(server_url="ws://test", wake_models=[])
+
+    app._on_state_change("recording")
+
+    expected = np.array(_create_icon_image(_ICON_COLORS["recording"]))
+    actual = np.array(app._icon.icon)
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_send_and_report_plays_audio_and_resumes_listening(monkeypatch):
     played = []
     monkeypatch.setattr("app.play", lambda chunk: played.append(chunk))
+    app = FridayApp(server_url="ws://test", wake_models=[])
+    app._client = FakeClient(UtteranceResult("hi", "You said: hi", [b"\x01", b"\x02"]))
+    resumed = []
+    monkeypatch.setattr(app._listener, "mark_sending_finished", lambda: resumed.append(True))
 
-    tray_app = FridayTrayApp(server_url="ws://test")
-    tray_app._client = FailingClient()
+    app._send_and_report(b"\x00\x00")
 
-    tray_app._handle_utterance(b"\x00\x00")
-
-    assert played == []
-    assert tray_app._client is None
+    assert played == [b"\x01", b"\x02"]
+    assert app._client.sent_audio == b"\x00\x00"
+    assert resumed == [True]
 
 
-def test_handle_utterance_recovers_from_malformed_protocol_response(monkeypatch):
+def test_send_and_report_does_not_play_audio_on_error(monkeypatch):
     played = []
     monkeypatch.setattr("app.play", lambda chunk: played.append(chunk))
+    app = FridayApp(server_url="ws://test", wake_models=[])
+    app._client = FakeClient(UtteranceResult("hi", "", [], error="boom"))
+    monkeypatch.setattr(app._listener, "mark_sending_finished", lambda: None)
 
-    tray_app = FridayTrayApp(server_url="ws://test")
-    tray_app._client = MalformedProtocolClient()
-
-    tray_app._handle_utterance(b"\x00\x00")
+    app._send_and_report(b"\x00\x00")
 
     assert played == []
-    assert tray_app._client is None
 
 
-def test_handle_utterance_recovers_from_missing_protocol_key(monkeypatch):
+def test_send_and_report_recovers_from_connection_error(monkeypatch):
     played = []
     monkeypatch.setattr("app.play", lambda chunk: played.append(chunk))
+    app = FridayApp(server_url="ws://test", wake_models=[])
+    app._client = FailingClient()
+    resumed = []
+    monkeypatch.setattr(app._listener, "mark_sending_finished", lambda: resumed.append(True))
 
-    tray_app = FridayTrayApp(server_url="ws://test")
-    tray_app._client = MissingKeyProtocolClient()
-
-    tray_app._handle_utterance(b"\x00\x00")
+    app._send_and_report(b"\x00\x00")
 
     assert played == []
-    assert tray_app._client is None
+    assert app._client is None
+    assert resumed == [True]
 
 
-def test_on_press_hotkey_twice_only_starts_recording_once():
-    """Test that repeated on_press events (X11 auto-repeat) only call start() once."""
-    tray_app = FridayTrayApp(server_url="ws://test")
-    tray_app._recorder = Mock()
+def test_send_and_report_recovers_from_malformed_protocol_response(monkeypatch):
+    played = []
+    monkeypatch.setattr("app.play", lambda chunk: played.append(chunk))
+    app = FridayApp(server_url="ws://test", wake_models=[])
+    app._client = MalformedProtocolClient()
+    monkeypatch.setattr(app._listener, "mark_sending_finished", lambda: None)
 
-    # First press should start recording
-    tray_app._on_press(HOTKEY)
-    assert tray_app._recorder.start.call_count == 1
-    assert tray_app._recording is True
+    app._send_and_report(b"\x00\x00")
 
-    # Second press (from X11 auto-repeat) should NOT call start() again
-    tray_app._on_press(HOTKEY)
-    assert tray_app._recorder.start.call_count == 1
-    assert tray_app._recording is True
+    assert played == []
+    assert app._client is None
 
 
-def test_on_release_after_on_press_resets_state_and_allows_restart():
-    """Test that releasing after pressing correctly stops recording and allows restart."""
-    tray_app = FridayTrayApp(server_url="ws://test")
-    tray_app._recorder = Mock()
-    tray_app._client = FakeClient(UtteranceResult("hi", "You said: hi", []))
+def test_send_and_report_resumes_listening_when_playback_raises(monkeypatch):
+    def _raising_play(chunk):
+        raise RuntimeError("PortAudio error")
 
-    # Press the hotkey
-    tray_app._on_press(HOTKEY)
-    assert tray_app._recording is True
-    assert tray_app._recorder.start.call_count == 1
+    monkeypatch.setattr("app.play", _raising_play)
+    app = FridayApp(server_url="ws://test", wake_models=[])
+    app._client = FakeClient(UtteranceResult("hi", "You said: hi", [b"\x01"]))
+    resumed = []
+    monkeypatch.setattr(app._listener, "mark_sending_finished", lambda: resumed.append(True))
 
-    # Release the hotkey
-    tray_app._on_press(HOTKEY)  # This won't do anything due to guard
-    tray_app._on_release(HOTKEY)
-    assert tray_app._recording is False
-    assert tray_app._recorder.stop.call_count == 1
+    try:
+        app._send_and_report(b"\x00\x00")
+    except RuntimeError:
+        pass
 
-    # Pressing again should work (not stuck in recording state)
-    tray_app._on_press(HOTKEY)
-    assert tray_app._recording is True
-    assert tray_app._recorder.start.call_count == 2
+    assert resumed == [True]
 
 
-def test_on_release_without_prior_press_does_not_call_stop():
-    """Test that releasing without a prior press doesn't call stop()."""
-    tray_app = FridayTrayApp(server_url="ws://test")
-    tray_app._recorder = Mock()
+def test_send_and_report_recovers_from_missing_protocol_key(monkeypatch):
+    played = []
+    monkeypatch.setattr("app.play", lambda chunk: played.append(chunk))
+    app = FridayApp(server_url="ws://test", wake_models=[])
+    app._client = MissingKeyProtocolClient()
+    monkeypatch.setattr(app._listener, "mark_sending_finished", lambda: None)
 
-    # Release without ever pressing
-    tray_app._on_release(HOTKEY)
+    app._send_and_report(b"\x00\x00")
 
-    # stop() should not be called
-    assert tray_app._recorder.stop.call_count == 0
-    assert tray_app._recording is False
+    assert played == []
+    assert app._client is None
+
+
+def test_listen_forever_retries_with_backoff_when_capture_fails(monkeypatch):
+    app = FridayApp(server_url="ws://test", wake_models=[])
+    monkeypatch.setattr(app._listener, "process_chunk", lambda chunk: None)
+
+    call_count = 0
+
+    def _failing_listen_chunks(chunk_samples, sample_rate):
+        nonlocal call_count
+        call_count += 1
+        raise OSError("no such device")
+        yield  # pragma: no cover - unreachable; makes this a generator function
+
+    monkeypatch.setattr("app.listen_chunks", _failing_listen_chunks)
+
+    class _StopTest(Exception):
+        pass
+
+    sleeps = []
+
+    def _fake_sleep(seconds):
+        sleeps.append(seconds)
+        if len(sleeps) >= 3:
+            raise _StopTest()
+
+    monkeypatch.setattr("app.time.sleep", _fake_sleep)
+
+    try:
+        app._listen_forever()
+    except _StopTest:
+        pass
+
+    # Every attempt fails before yielding a single chunk (e.g. no device at
+    # all), so backoff keeps doubling rather than resetting.
+    assert sleeps == [1.0, 2.0, 4.0]
+    assert call_count == 3
+
+
+def test_on_utterance_ready_dispatches_to_background_thread(monkeypatch):
+    app = FridayApp(server_url="ws://test", wake_models=[])
+    calls = []
+    monkeypatch.setattr(app, "_send_and_report", lambda audio: calls.append(audio))
+
+    class ImmediateThread:
+        def __init__(self, target, args, daemon):
+            self._target = target
+            self._args = args
+
+        def start(self):
+            self._target(*self._args)
+
+    monkeypatch.setattr(threading, "Thread", ImmediateThread)
+
+    app._on_utterance_ready(b"\x00\x00")
+
+    assert calls == [b"\x00\x00"]
