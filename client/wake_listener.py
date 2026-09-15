@@ -59,12 +59,14 @@ class WakeWordListener:
         self._utterance_chunks = []
         self._silence_seconds = 0.0
         self._recording_seconds = 0.0
+        self._voiced_seconds = 0.0
 
     @property
     def state(self) -> str:
         return self._state
 
     def mark_sending_finished(self) -> None:
+        self._reset_wake_models()
         self._set_state(LISTENING)
 
     def process_chunk(self, chunk: bytes) -> None:
@@ -79,8 +81,16 @@ class WakeWordListener:
 
     def _start_recording(self) -> None:
         self._utterance_chunks = list(self._pre_roll)
+        self._pre_roll.clear()
         self._recording_seconds = len(self._utterance_chunks) * self._chunk_seconds
         self._silence_seconds = 0.0
+        # Pre-roll (which includes the wake-word trigger chunk itself, since
+        # it was appended to the pre-roll buffer before the trigger check
+        # ran) is typically near-silent room tone plus the wake word, not
+        # follow-up speech - treated as unvoiced for a simple default.
+        # Voiced time is counted only from chunks seen from here on, via
+        # _append_and_check_silence.
+        self._voiced_seconds = 0.0
         self._set_state(RECORDING)
         if self._recording_seconds >= self._max_utterance_seconds:
             self._finish_utterance()
@@ -95,6 +105,7 @@ class WakeWordListener:
             self._silence_seconds += self._chunk_seconds
         else:
             self._silence_seconds = 0.0
+            self._voiced_seconds += self._chunk_seconds
 
         if (
             self._silence_seconds >= self._silence_hangover_seconds
@@ -105,11 +116,17 @@ class WakeWordListener:
     def _finish_utterance(self) -> None:
         audio_bytes = b"".join(self._utterance_chunks)
         self._utterance_chunks = []
-        if self._recording_seconds < self._min_utterance_seconds:
+        if self._voiced_seconds < self._min_utterance_seconds:
+            self._reset_wake_models()
             self._set_state(LISTENING)
             return
         self._set_state(SENDING)
         self._on_utterance_ready(audio_bytes)
+
+    def _reset_wake_models(self) -> None:
+        for model in self._wake_models:
+            if hasattr(model, "reset"):
+                model.reset()
 
     def _set_state(self, new_state: str) -> None:
         self._state = new_state

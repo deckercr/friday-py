@@ -16,10 +16,14 @@ class FakeWakeModel:
     def __init__(self, trigger_on_call=None):
         self._trigger_on_call = trigger_on_call
         self.calls = 0
+        self.reset_calls = 0
 
     def score(self, chunk: bytes) -> float:
         self.calls += 1
         return 1.0 if self._trigger_on_call == self.calls else 0.0
+
+    def reset(self) -> None:
+        self.reset_calls += 1
 
 
 def test_ignores_chunks_below_wake_threshold():
@@ -155,6 +159,70 @@ def test_sending_state_ignores_further_scoring_until_marked_finished():
     listener.mark_sending_finished()
 
     assert listener.state == "listening"
+
+
+def test_mark_sending_finished_resets_wake_models():
+    chunk_seconds = CHUNK_SAMPLES / SAMPLE_RATE
+    model = FakeWakeModel(trigger_on_call=1)
+    listener = WakeWordListener(
+        wake_models=[model],
+        on_utterance_ready=lambda audio: None,
+        max_utterance_seconds=chunk_seconds,
+        min_utterance_seconds=0.0,
+    )
+    listener.process_chunk(_chunk(0))  # triggers, immediately ends (max duration) -> sending
+    assert listener.state == "sending"
+    assert model.reset_calls == 0
+
+    listener.mark_sending_finished()
+
+    assert listener.state == "listening"
+    assert model.reset_calls == 1
+
+
+def test_min_duration_drop_path_resets_wake_models():
+    delivered = []
+    chunk_seconds = CHUNK_SAMPLES / SAMPLE_RATE
+    model = FakeWakeModel(trigger_on_call=1)
+    listener = WakeWordListener(
+        wake_models=[model],
+        on_utterance_ready=delivered.append,
+        max_utterance_seconds=chunk_seconds,  # ends after just 1 chunk
+        min_utterance_seconds=1.0,            # far longer than what gets recorded
+    )
+
+    listener.process_chunk(_chunk(0))  # trigger -> recording -> immediately hits max duration -> dropped
+
+    assert listener.state == "listening"
+    assert delivered == []
+    assert model.reset_calls == 1
+
+
+def test_bare_wake_word_with_no_follow_up_speech_is_dropped_at_realistic_defaults():
+    """Regression test for the min-duration guard being dead code at the
+    shipped defaults: a loud wake-word trigger chunk followed immediately by
+    enough silence to end the utterance (no real follow-up speech) must
+    still be dropped, because only *voiced* time counts toward the minimum
+    duration - not total buffered time (pre-roll + silence hangover alone
+    exceeds min_utterance_seconds at the shipped defaults).
+    """
+    delivered = []
+    listener = WakeWordListener(
+        wake_models=[FakeWakeModel(trigger_on_call=1)],
+        on_utterance_ready=delivered.append,
+        # pre_roll_seconds, silence_hangover_seconds, min_utterance_seconds
+        # intentionally left at their real-world defaults.
+    )
+
+    listener.process_chunk(_chunk(5000))  # loud trigger chunk ("Friday" itself)
+    assert listener.state == "recording"
+
+    # Enough consecutive silent chunks to reach the default 1.0s hangover.
+    for _ in range(13):
+        listener.process_chunk(_chunk(0))
+
+    assert listener.state == "listening"
+    assert delivered == []
 
 
 def test_on_state_change_fires_for_each_transition():
