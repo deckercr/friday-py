@@ -9,10 +9,17 @@ sharing one Model instance across multiple registered phrases.
 """
 import numpy as np
 from openwakeword.model import Model
+from openwakeword.utils import download_models
 
 
 class OpenWakeWordModel:
     def __init__(self, model_path: str, model_name: str):
+        # openwakeword's wheel doesn't bundle its shared feature-extraction
+        # models (melspectrogram.onnx / embedding_model.onnx); download_models
+        # fetches them if missing and no-ops if already present. `[]` means
+        # "no phrase-specific models to download here" - only the shared
+        # backbone that every phrase model depends on.
+        download_models([])
         self._model = Model(wakeword_models=[model_path], inference_framework="onnx")
         self._model_name = model_name
 
@@ -20,3 +27,9 @@ class OpenWakeWordModel:
         samples = np.frombuffer(chunk, dtype=np.int16)
         prediction = self._model.predict(samples)
         return float(prediction[self._model_name])
+
+    def reset(self) -> None:
+        # Clears openWakeWord's internal rolling feature buffer so a stale
+        # buffer from the previous utterance can't immediately re-trigger
+        # once listening resumes.
+        self._model.reset()
