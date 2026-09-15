@@ -10,6 +10,12 @@ import sounddevice as sd
 SAMPLE_RATE = 16000
 CHANNELS = 1
 CHUNK_SIZE = 1024
+# Bounds how much audio can queue up if the consumer (wake-word scoring)
+# falls behind - generous enough to absorb a brief stall, capped so a
+# sustained one drops old audio and stays real-time instead of growing
+# memory and processing increasingly stale chunks. At ~80ms/chunk this is
+# roughly 4s of headroom.
+QUEUE_MAXSIZE = 50
 
 
 def listen_chunks(chunk_samples: int = CHUNK_SIZE, sample_rate: int = SAMPLE_RATE, channels: int = CHANNELS):
@@ -21,10 +27,24 @@ def listen_chunks(chunk_samples: int = CHUNK_SIZE, sample_rate: int = SAMPLE_RAT
     (e.g. `for chunk in listen_chunks(): ...`), since wake-word listening
     needs the mic open continuously rather than only while a key is held.
     """
-    chunk_queue: "queue.Queue[bytes]" = queue.Queue()
+    chunk_queue: "queue.Queue[bytes]" = queue.Queue(maxsize=QUEUE_MAXSIZE)
 
     def _callback(indata, frames, time_info, status):
-        chunk_queue.put(bytes(indata))
+        chunk = bytes(indata)
+        try:
+            chunk_queue.put_nowait(chunk)
+        except queue.Full:
+            # Consumer can't keep up - drop the oldest chunk rather than
+            # growing unbounded or blocking this real-time audio callback.
+            try:
+                chunk_queue.get_nowait()
+            except queue.Empty:
+                pass
+            print("Warning: audio capture queue full, dropping oldest chunk")
+            try:
+                chunk_queue.put_nowait(chunk)
+            except queue.Full:
+                pass  # lost the race to another callback invocation; drop this one too
 
     with sd.InputStream(
         samplerate=sample_rate,

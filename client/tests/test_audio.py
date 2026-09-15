@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from audio import listen_chunks, play
+from audio import QUEUE_MAXSIZE, listen_chunks, play
 
 
 class _FakeInputStream:
@@ -29,6 +29,21 @@ def test_listen_chunks_yields_callback_data_as_bytes(mock_input_stream_cls):
     received = [next(generator), next(generator)]
 
     assert received == chunks
+
+
+@patch("audio.sd.InputStream")
+def test_listen_chunks_drops_oldest_when_queue_is_full(mock_input_stream_cls):
+    # One more chunk than the queue can hold; each is distinguishable by
+    # its own bytes so we can tell which ones survived.
+    chunks = [bytes([i]) for i in range(QUEUE_MAXSIZE + 1)]
+    mock_input_stream_cls.side_effect = lambda **kwargs: _FakeInputStream(chunks, **kwargs)
+
+    generator = listen_chunks(chunk_samples=1, sample_rate=16000, channels=1)
+    received = [next(generator) for _ in range(QUEUE_MAXSIZE)]
+
+    # The oldest chunk (index 0) was dropped to make room for the last one;
+    # everything from index 1 onward survived, in order.
+    assert received == chunks[1:]
 
 
 @patch("audio.sd")
