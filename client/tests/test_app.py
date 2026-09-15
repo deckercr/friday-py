@@ -97,6 +97,24 @@ def test_send_and_report_recovers_from_malformed_protocol_response(monkeypatch):
     assert app._client is None
 
 
+def test_send_and_report_resumes_listening_when_playback_raises(monkeypatch):
+    def _raising_play(chunk):
+        raise RuntimeError("PortAudio error")
+
+    monkeypatch.setattr("app.play", _raising_play)
+    app = FridayApp(server_url="ws://test", wake_models=[])
+    app._client = FakeClient(UtteranceResult("hi", "You said: hi", [b"\x01"]))
+    resumed = []
+    monkeypatch.setattr(app._listener, "mark_sending_finished", lambda: resumed.append(True))
+
+    try:
+        app._send_and_report(b"\x00\x00")
+    except RuntimeError:
+        pass
+
+    assert resumed == [True]
+
+
 def test_send_and_report_recovers_from_missing_protocol_key(monkeypatch):
     played = []
     monkeypatch.setattr("app.play", lambda chunk: played.append(chunk))

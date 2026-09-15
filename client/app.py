@@ -47,29 +47,32 @@ class FridayApp:
 
     def _send_and_report(self, audio_bytes: bytes) -> None:
         try:
-            if self._client is None:
-                self._client = connect_to_server(self._server_url)
-            result = self._client.send_utterance(audio_bytes)
-        except (OSError, WebSocketException, ValueError, KeyError) as exc:
-            print(f"Disconnected ({exc}); will reconnect on next utterance")
-            self._client = None
-            self._listener.mark_sending_finished()
-            return
+            try:
+                if self._client is None:
+                    self._client = connect_to_server(self._server_url)
+                result = self._client.send_utterance(audio_bytes)
+            except (OSError, WebSocketException, ValueError, KeyError) as exc:
+                print(f"Disconnected ({exc}); will reconnect on next utterance")
+                self._client = None
+                return
 
-        if result.error:
-            print(f"Error: {result.error}")
-            self._listener.mark_sending_finished()
-            return
+            if result.error:
+                print(f"Error: {result.error}")
+                return
 
-        print(f"Transcript: {result.transcript}")
-        print(f"Response: {result.response_text}")
-        for chunk in result.audio_chunks:
-            play(chunk)
-        self._listener.mark_sending_finished()
+            print(f"Transcript: {result.transcript}")
+            print(f"Response: {result.response_text}")
+            for chunk in result.audio_chunks:
+                play(chunk)
+        finally:
+            self._listener.mark_sending_finished()
 
     def _listen_forever(self) -> None:
         for chunk in listen_chunks(chunk_samples=CHUNK_SAMPLES, sample_rate=SAMPLE_RATE):
-            self._listener.process_chunk(chunk)
+            try:
+                self._listener.process_chunk(chunk)
+            except Exception as exc:  # noqa: BLE001 - keep the mic thread alive at all costs
+                print(f"Warning: error processing audio chunk ({exc}); still listening")
 
     def run(self) -> None:
         threading.Thread(target=self._listen_forever, daemon=True).start()
