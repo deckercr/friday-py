@@ -5,8 +5,9 @@ import numpy as np
 from wake_word_model import OpenWakeWordModel
 
 
+@patch("wake_word_model._ensure_feature_models")
 @patch("wake_word_model.Model")
-def test_score_delegates_to_openwakeword_prediction(mock_model_cls):
+def test_score_delegates_to_openwakeword_prediction(mock_model_cls, mock_ensure_feature_models):
     mock_model = MagicMock()
     mock_model.predict.return_value = {"hey_friday": 0.87}
     mock_model_cls.return_value = mock_model
