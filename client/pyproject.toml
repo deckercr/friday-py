@@ -1,7 +1,12 @@
 [project]
 name = "friday-client"
 version = "0.1.0"
-requires-python = ">=3.11"
+# Capped at <3.12: openwakeword depends on tflite-runtime on Linux, and
+# tflite-runtime publishes no cp312 (or newer) wheels at all - a 3.12+
+# resolve would fail outright. See also client/.python-version (pins 3.11
+# for `uv run`/`uv sync`); this cap keeps the constraint honest for any
+# other tool or explicit --python override too.
+requires-python = ">=3.11,<3.12"
 dependencies = [
     "pystray>=0.19",
     "pillow>=10.0",
